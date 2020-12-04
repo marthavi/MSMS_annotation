@@ -1,0 +1,201 @@
+---
+title: "Peptide Annotation"
+author: "Martha Zuluaga"
+date: "22/10/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# 1. Enviroment
+```{r message=FALSE}
+setwd("~/1_Cacao_Buenaventura/MSMS_Processing and Annotation")
+library(tidyverse)
+library(dplyr)
+library(ggplot2)
+library(bigmemory)
+library(biganalytics)
+library(Matrix)
+library(data.table)
+library(ggrepel)
+```
+
+# 2. Call the data
+```{r}
+experimental <- "Spectra/MZ712.86.csv"
+theoretical <- "Spectra/712_Theo.csv"
+data          <- read.csv(file = experimental)
+data_theoretical <- read.csv(file = theoretical, sep = ";")
+```
+
+##3.1 Experimental data tidy
+```{r}
+data.1 <- data.frame(mass = data[!(is.na(data[,1])),1], intensity = data[!(is.na(data[,1])),2]) %>%
+           arrange(desc(intensity)) 
+data.1$rel_intensity <- data.1$intensity/data.1$intensity[1]*100
+data.1$energy        <- "15.ev"
+  
+data.2 <- data.frame(mass = data[!(is.na(data[,3])),3], intensity = data[!(is.na(data[,3])),4]) %>%
+  arrange(desc(intensity)) 
+data.2$rel_intensity <- data.2$intensity/data.2$intensity[1]*100  
+data.2$energy        <- "35.ev"
+
+data.3 <- data.frame(mass = data[!(is.na(data[,5])),5], intensity = data[!(is.na(data[,5])),6]) %>%
+  arrange(desc(intensity)) 
+data.3$rel_intensity <- data.3$intensity/data.3$intensity[1]*100  
+data.3$energy        <- "55.ev"
+
+data.exp <- rbind(data.1,data.2, data.3)
+
+```
+
+
+##3.2 Theoretical data tidy
+```{r}
+data.1 <- data.frame(mass = data_theoretical[!(is.na(data_theoretical[,1])),1], intensity = data_theoretical[!(is.na(data_theoretical[,1])),2]) %>%
+  arrange(desc(intensity)) 
+data.1$rel_intensity <- data.1$intensity/data.1$intensity[1]*100
+data.1$energy        <- "10.ev"
+
+data.2 <- data.frame(mass = data_theoretical[!(is.na(data_theoretical[,3])),3], intensity = data_theoretical[!(is.na(data_theoretical[,3])),4]) %>%
+  arrange(desc(intensity)) 
+data.2$rel_intensity <- data.2$intensity/data.2$intensity[1]*100  
+data.2$energy        <- "20.ev"
+
+data.3 <- data.frame(mass = data_theoretical[!(is.na(data_theoretical[,5])),5], intensity = data_theoretical[!(is.na(data_theoretical[,5])),6]) %>%
+  arrange(desc(intensity)) 
+data.3$rel_intensity <- data.3$intensity/data.3$intensity[1]*100  
+data.3$energy        <- "40.ev"
+
+data.theo      <- rbind(data.1,data.2,data.3)
+data.theo$type <- "Theoretical"
+
+```
+
+# 4. Data analysis. Matching theoretical and experimental data
+```{r}
+mass      <- c()
+intensity <- c()
+rel_intensity <- c()
+energy     <- c()
+for (i in 1:length(data.theo$mass)){
+  aux <- data.exp[near(data.exp$mass,data.theo$mass[i], tol = 1),] %>% arrange(desc(rel_intensity))
+  mass      <- c(mass,aux[1,1])
+  intensity <- c(intensity,aux[1,2])
+  rel_intensity <- c(rel_intensity,aux[1,3])
+  energy        <- c(energy,aux[1,4])
+}
+
+
+data.match <- data.frame(mass = mass, intensity = intensity, 
+                        rel_intensity = rel_intensity,
+                        energy = energy, type = "Experimental") # Datos emparejados con los teoricos 
+
+
+total_data <- rbind(data.match,data.theo)
+
+```
+
+
+#5.Visualization
+## 5.1 Experimental spectrum
+```{r}
+exp.data.filtered <- data.exp %>% 
+  filter(rel_intensity > 10)
+ggplot(exp.data.filtered, aes(x=mass, y=rel_intensity, color = energy)) + 
+  geom_point(size = 2) +
+  geom_segment(aes(x=mass, 
+                   xend=mass, 
+                   y=0, 
+                   yend=rel_intensity))
+
+```
+
+
+## 5.2 Theoretical spectrum
+```{r}
+ggplot(data.theo, aes(x=mass, y=rel_intensity, color = energy)) + 
+  geom_point(size = 2) +
+  geom_segment(aes(x=mass, 
+                   xend=mass, 
+                   y=0, 
+                   yend=rel_intensity)) 
+
+```
+
+## 5.3 Theoretical matching spectrum
+```{r}
+ggplot(data.match, aes(x=mass, y=rel_intensity, color = energy)) + 
+  geom_point(size = 2) +
+  geom_segment(aes(x=mass, 
+                   xend=mass, 
+                   y=0, 
+                   yend=rel_intensity)) 
+
+```
+
+
+#5.3 Overlapping spectrum
+```{r}
+ggplot(total_data, aes(x=mass, y=rel_intensity, color = type)) + 
+  geom_point(size = 2) +
+  geom_segment(aes(x=mass, 
+                   xend=mass, 
+                   y=0, 
+                   yend=rel_intensity)) 
+
+```
+
+
+# 6. matching matrix
+```{r}
+comparative <- tibble(exp.mass = data.match$mass, theo.mass = data.theo$mass,
+                             rel_intensity.exp  = data.match$rel_intensity,
+                             rel_intensity.theo  = data.theo$rel_intensity)
+head(comparative, 100)
+
+```
+
+
+# 7. Select highest intensity
+```{r}
+comparative_20 <- comparative %>% 
+  filter(rel_intensity.exp >=20) %>% 
+  arrange(desc(rel_intensity.theo))
+
+head(comparative_20, 21)
+```
+# 8. mass error
+```{r}
+comparative_20 <- comparative_20 %>% 
+  mutate(ppm = (theo.mass-exp.mass)*1000000/theo.mass)
+head(comparative_20, 20)
+```
+
+# 9. write table
+```{r}
+write.csv(comparative_20, file = "match_712.csv")
+```
+
+
+#5.3.1. Overlapping spectrum
+
+```{r}
+data.theo <- data.theo %>% 
+  mutate(rel_intensity = -rel_intensity)
+
+total_data <- rbind(data.match, data.theo)
+
+ggplot(total_data, aes(x=mass, y=rel_intensity, color = type)) + 
+  geom_point(size = 2) +
+  geom_segment(aes(x=mass, 
+                   xend=mass, 
+                   y=0, 
+                   yend=rel_intensity)) +
+  geom_text_repel(data = total_data %>% 
+                    filter(abs(rel_intensity) > 15),
+                  mapping = aes(label = round(mass, 2)), size = 3, show.legend = F)
+
+```
